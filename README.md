@@ -17,11 +17,13 @@ https://youtu.be/0OKn9e1Gg48?si=z-j3FrIYbOQPsFxJ
    `gedit rip-simple-network.cc`
    
 4. Save and close the file. Run the following commands for execution:
+   
    `cd ..` - go back to ns-3.xx directory
    
    `./ns3 run scratch/rip-simple-network.cc`
    
 6. For wireshark:
+   
    `ls`
    
    `wireshark rip-simple-routing-DstNode-0.pcap` - replace with the node or router of your choice
