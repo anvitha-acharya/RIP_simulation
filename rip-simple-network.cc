@@ -36,29 +36,29 @@
 #include "ns3/csma-module.h"
 #include "ns3/internet-apps-module.h"
 #include "ns3/internet-module.h"
+#include "ns3/animation-interface.h"
 #include "ns3/ipv4-routing-table-entry.h"
 #include "ns3/ipv4-static-routing-helper.h"
-
 #include <fstream>
 
 using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE("RipSimpleRouting");
 
-void
-TearDownLink(Ptr<Node> nodeA, Ptr<Node> nodeB, uint32_t interfaceA, uint32_t interfaceB)
+// Function to set down link between A and B at 40 sec
+void TearDownLink(Ptr<Node> nodeA, Ptr<Node> nodeB, uint32_t interfaceA, uint32_t interfaceB)
 {
     nodeA->GetObject<Ipv4>()->SetDown(interfaceA);
     nodeB->GetObject<Ipv4>()->SetDown(interfaceB);
 }
 
-int
-main(int argc, char** argv)
-{
+int main(int argc, char** argv)
+{   
+    // by default, kept false
     bool verbose = false;
     bool printRoutingTables = false;
-    bool showPings = false;
-    std::string SplitHorizon("PoisonReverse");
+    bool showPings = false; 
+    std::string SplitHorizon("NoSplitHorizon");
 
     CommandLine cmd(__FILE__);
     cmd.AddValue("verbose", "turn on log components", verbose);
@@ -83,19 +83,21 @@ main(int argc, char** argv)
         LogComponentEnable("Ping", LOG_LEVEL_ALL);
     }
 
-    if (SplitHorizon == "NoSplitHorizon")
-{
-    Config::SetDefault("ns3::RipNg::SplitHorizon", EnumValue(RipNg::NO_SPLIT_HORIZON));
-}
-else if (SplitHorizon == "SplitHorizon")
-{
-    Config::SetDefault("ns3::RipNg::SplitHorizon", EnumValue(RipNg::SPLIT_HORIZON));
-}
-else
-{
-    Config::SetDefault("ns3::RipNg::SplitHorizon", EnumValue(RipNg::POISON_REVERSE));
-}
 
+    if (SplitHorizon == "NoSplitHorizon")
+    {
+        Config::SetDefault("ns3::RipNg::SplitHorizon", EnumValue(RipNg::NO_SPLIT_HORIZON));
+    }
+    else if (SplitHorizon == "SplitHorizon")
+    {
+        Config::SetDefault("ns3::RipNg::SplitHorizon", EnumValue(RipNg::SPLIT_HORIZON));
+    }
+    else
+    {
+        Config::SetDefault("ns3::RipNg::SplitHorizon", EnumValue(RipNg::POISON_REVERSE));
+    }
+
+    // Create nodes
     NS_LOG_INFO("Create nodes.");
     Ptr<Node> src = CreateObject<Node>();
     Names::Add("SrcNode", src);
@@ -109,6 +111,7 @@ else
     Names::Add("RouterC", c);
     Ptr<Node> d = CreateObject<Node>();
     Names::Add("RouterD", d);
+
     NodeContainer net1(src, a);
     NodeContainer net2(a, b);
     NodeContainer net3(a, c);
@@ -119,6 +122,7 @@ else
     NodeContainer routers(a, b, c, d);
     NodeContainer nodes(src, dst);
 
+    // Create channels
     NS_LOG_INFO("Create channels.");
     CsmaHelper csma;
     csma.SetChannelAttribute("DataRate", DataRateValue(5000000));
@@ -131,6 +135,7 @@ else
     NetDeviceContainer ndc6 = csma.Install(net6);
     NetDeviceContainer ndc7 = csma.Install(net7);
 
+    // Configure routing
     NS_LOG_INFO("Create IPv4 and routing");
     RipHelper ripRouting;
 
@@ -157,11 +162,7 @@ else
     internetNodes.SetIpv6StackInstall(false);
     internetNodes.Install(nodes);
 
-    // Assign addresses.
-    // The source and destination networks have global addresses
-    // The "core" network just needs link-local addresses for routing.
-    // We assign global addresses to the routers as well to receive
-    // ICMPv6 errors.
+    // Assign IP addresses
     NS_LOG_INFO("Assign IPv4 Addresses.");
     Ipv4AddressHelper ipv4;
 
@@ -215,7 +216,7 @@ else
         Ipv4RoutingHelper::PrintRoutingTableAt(Seconds(90.0), c, routingStream);
         Ipv4RoutingHelper::PrintRoutingTableAt(Seconds(90.0), d, routingStream);
     }
-
+    
     NS_LOG_INFO("Create Applications.");
     uint32_t packetSize = 1024;
     Time interPacketInterval = Seconds(1.0);
@@ -235,14 +236,23 @@ else
     csma.EnableAsciiAll(ascii.CreateFileStream("rip-simple-routing.tr"));
     csma.EnablePcapAll("rip-simple-routing", true);
 
+
+    // Configure animation
+    AnimationInterface anim("rip-simple-routing-" + SplitHorizon + ".xml");
+    anim.SetConstantPosition(src, 0.0, 0.0);
+    anim.SetConstantPosition(a, 2.0, 1.0);
+    anim.SetConstantPosition(b, 4.0, 0.0);
+    anim.SetConstantPosition(c, 2.0, -1.0);
+    anim.SetConstantPosition(d, 6.0, 0.0);
+    anim.SetConstantPosition(dst, 8.0, 0.0);
+
+    // Tear down the link between B and D at 40 seconds
     Simulator::Schedule(Seconds(40), &TearDownLink, b, d, 3, 2);
 
-    /* Now, do the actual simulation. */
     NS_LOG_INFO("Run Simulation.");
     Simulator::Stop(Seconds(131.0));
     Simulator::Run();
     Simulator::Destroy();
     NS_LOG_INFO("Done.");
-
     return 0;
 }
