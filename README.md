@@ -21,6 +21,9 @@ https://youtu.be/0OKn9e1Gg48?si=z-j3FrIYbOQPsFxJ
    `cd ..` - go back to ns-3.xx directory
    
    `./ns3 run scratch/rip-simple-network.cc`
+   or for other strategies:
+   `./ns3 run "scratch/rip-simple-network.cc --splitHorizonStrategy=SplitHorizon"`
+   
    
 6. For wireshark:
    
