@@ -45,28 +45,51 @@ using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE("RipSimpleRouting");
 
-// Function to set down link between A and B at 40 sec
+// Global pointer to animation interface
+AnimationInterface* g_anim = nullptr;
+
 void TearDownLink(Ptr<Node> nodeA, Ptr<Node> nodeB, uint32_t interfaceA, uint32_t interfaceB)
 {
     nodeA->GetObject<Ipv4>()->SetDown(interfaceA);
     nodeB->GetObject<Ipv4>()->SetDown(interfaceB);
+    
+    // Visualize link failure in animation
+    if (g_anim) {
+        std::string description = "Link Down";
+        g_anim->UpdateNodeColor(nodeA, 255, 0, 0); // Red for failed node
+        g_anim->UpdateNodeColor(nodeB, 255, 0, 0);
+        g_anim->UpdateNodeDescription(nodeA, description);
+        g_anim->UpdateNodeDescription(nodeB, description);
+    }
+}
+
+void RecoverLink(Ptr<Node> nodeA, Ptr<Node> nodeB, uint32_t interfaceA, uint32_t interfaceB)
+{
+    nodeA->GetObject<Ipv4>()->SetUp(interfaceA);
+    nodeB->GetObject<Ipv4>()->SetUp(interfaceB);
+    
+    // Visualize link recovery in animation
+    if (g_anim) {
+        std::string description = "Link Up";
+        g_anim->UpdateNodeColor(nodeA, 0, 255, 0); // Green for recovered node
+        g_anim->UpdateNodeColor(nodeB, 0, 255, 0);
+        g_anim->UpdateNodeDescription(nodeA, description);
+        g_anim->UpdateNodeDescription(nodeB, description);
+    }
 }
 
 int main(int argc, char** argv)
 {   
-    // by default, kept false
     bool verbose = false;
     bool printRoutingTables = false;
-    bool showPings = false; 
+    bool showPings = false;
     std::string SplitHorizon("NoSplitHorizon");
 
     CommandLine cmd(__FILE__);
     cmd.AddValue("verbose", "turn on log components", verbose);
-    cmd.AddValue("printRoutingTables",
-                 "Print routing tables at 30, 60 and 90 seconds",
-                 printRoutingTables);
+    cmd.AddValue("printRoutingTables", "Print routing tables at 30, 60 and 90 seconds", printRoutingTables);
     cmd.AddValue("showPings", "Show Ping6 reception", showPings);
-    cmd.AddValue("splitHorizonStrategy",
+    cmd.AddValue("splitHorizonStrategy", 
                  "Split Horizon strategy to use (NoSplitHorizon, SplitHorizon, PoisonReverse)",
                  SplitHorizon);
     cmd.Parse(argc, argv);
@@ -83,7 +106,7 @@ int main(int argc, char** argv)
         LogComponentEnable("Ping", LOG_LEVEL_ALL);
     }
 
-
+    // Configure split horizon strategy
     if (SplitHorizon == "NoSplitHorizon")
     {
         Config::SetDefault("ns3::RipNg::SplitHorizon", EnumValue(RipNg::NO_SPLIT_HORIZON));
@@ -122,36 +145,49 @@ int main(int argc, char** argv)
     NodeContainer routers(a, b, c, d);
     NodeContainer nodes(src, dst);
 
-    // Create channels
+    // Create channels with different delays
     NS_LOG_INFO("Create channels.");
     CsmaHelper csma;
     csma.SetChannelAttribute("DataRate", DataRateValue(5000000));
+    
+    // Set different delays for different paths
     csma.SetChannelAttribute("Delay", TimeValue(MilliSeconds(2)));
     NetDeviceContainer ndc1 = csma.Install(net1);
+    
+    csma.SetChannelAttribute("Delay", TimeValue(MilliSeconds(3)));
     NetDeviceContainer ndc2 = csma.Install(net2);
+    
+    csma.SetChannelAttribute("Delay", TimeValue(MilliSeconds(4)));
     NetDeviceContainer ndc3 = csma.Install(net3);
+    
+    csma.SetChannelAttribute("Delay", TimeValue(MilliSeconds(2)));
     NetDeviceContainer ndc4 = csma.Install(net4);
+    
+    csma.SetChannelAttribute("Delay", TimeValue(MilliSeconds(5)));
     NetDeviceContainer ndc5 = csma.Install(net5);
+    
+    csma.SetChannelAttribute("Delay", TimeValue(MilliSeconds(2)));
     NetDeviceContainer ndc6 = csma.Install(net6);
+    
+    csma.SetChannelAttribute("Delay", TimeValue(MilliSeconds(2)));
     NetDeviceContainer ndc7 = csma.Install(net7);
 
     // Configure routing
     NS_LOG_INFO("Create IPv4 and routing");
     RipHelper ripRouting;
 
-    // Rule of thumb:
-    // Interfaces are added sequentially, starting from 0
-    // However, interface 0 is always the loopback...
+    // Configure RIP interfaces
     ripRouting.ExcludeInterface(a, 1);
     ripRouting.ExcludeInterface(d, 3);
 
+    // Set different metrics
     ripRouting.SetInterfaceMetric(c, 3, 10);
     ripRouting.SetInterfaceMetric(d, 1, 10);
+    ripRouting.SetInterfaceMetric(b, 2, 5);
+    ripRouting.SetInterfaceMetric(c, 1, 5);
 
     Ipv4ListRoutingHelper listRH;
     listRH.Add(ripRouting, 0);
-    //  Ipv4StaticRoutingHelper staticRh;
-    //  listRH.Add (staticRh, 5);
 
     InternetStackHelper internet;
     internet.SetIpv6StackInstall(false);
@@ -168,8 +204,7 @@ int main(int argc, char** argv)
 
     ipv4.SetBase(Ipv4Address("10.0.0.0"), Ipv4Mask("255.255.255.0"));
     Ipv4InterfaceContainer iic1 = ipv4.Assign(ndc1);
-	// SRC to A
-	
+
     ipv4.SetBase(Ipv4Address("10.0.1.0"), Ipv4Mask("255.255.255.0"));
     Ipv4InterfaceContainer iic2 = ipv4.Assign(ndc2);
 
@@ -187,17 +222,19 @@ int main(int argc, char** argv)
 
     ipv4.SetBase(Ipv4Address("10.0.6.0"), Ipv4Mask("255.255.255.0"));
     Ipv4InterfaceContainer iic7 = ipv4.Assign(ndc7);
-    //D to DST
 
+    // Configure static routes
     Ptr<Ipv4StaticRouting> staticRouting;
     staticRouting = Ipv4RoutingHelper::GetRouting<Ipv4StaticRouting>(
         src->GetObject<Ipv4>()->GetRoutingProtocol());
     staticRouting->SetDefaultRoute("10.0.0.2", 1);
+    
     staticRouting = Ipv4RoutingHelper::GetRouting<Ipv4StaticRouting>(
         dst->GetObject<Ipv4>()->GetRoutingProtocol());
     staticRouting->SetDefaultRoute("10.0.6.1", 1);
 
-    if (!printRoutingTables) 
+    // Print routing tables
+    if (!printRoutingTables)
     {
         Ptr<OutputStreamWrapper> routingStream = Create<OutputStreamWrapper>(&std::cout);
 
@@ -216,7 +253,8 @@ int main(int argc, char** argv)
         Ipv4RoutingHelper::PrintRoutingTableAt(Seconds(90.0), c, routingStream);
         Ipv4RoutingHelper::PrintRoutingTableAt(Seconds(90.0), d, routingStream);
     }
-    
+
+    // Create ping application
     NS_LOG_INFO("Create Applications.");
     uint32_t packetSize = 1024;
     Time interPacketInterval = Seconds(1.0);
@@ -232,13 +270,16 @@ int main(int argc, char** argv)
     apps.Start(Seconds(1.0));
     apps.Stop(Seconds(110.0));
 
+    // Enable traces
     AsciiTraceHelper ascii;
     csma.EnableAsciiAll(ascii.CreateFileStream("rip-simple-routing.tr"));
     csma.EnablePcapAll("rip-simple-routing", true);
 
-
     // Configure animation
     AnimationInterface anim("rip-simple-routing-" + SplitHorizon + ".xml");
+    g_anim = &anim;  // Store animation interface pointer
+    
+    // Position nodes
     anim.SetConstantPosition(src, 0.0, 0.0);
     anim.SetConstantPosition(a, 2.0, 1.0);
     anim.SetConstantPosition(b, 4.0, 0.0);
@@ -246,13 +287,26 @@ int main(int argc, char** argv)
     anim.SetConstantPosition(d, 6.0, 0.0);
     anim.SetConstantPosition(dst, 8.0, 0.0);
 
-    // Tear down the link between B and D at 40 seconds
+    // Set node descriptions
+    anim.UpdateNodeDescription(a, "Router A\n" + SplitHorizon);
+    anim.UpdateNodeDescription(b, "Router B\n" + SplitHorizon);
+    anim.UpdateNodeDescription(c, "Router C\n" + SplitHorizon);
+    anim.UpdateNodeDescription(d, "Router D\n" + SplitHorizon);
+
+    // Set up link failures and recoveries
     Simulator::Schedule(Seconds(40), &TearDownLink, b, d, 3, 2);
+    Simulator::Schedule(Seconds(60), &TearDownLink, c, d, 2, 1);
+    
+    // Schedule link recoveries
+    Simulator::Schedule(Seconds(80), &RecoverLink, b, d, 3, 2);
+    Simulator::Schedule(Seconds(100), &RecoverLink, c, d, 2, 1);
 
     NS_LOG_INFO("Run Simulation.");
     Simulator::Stop(Seconds(131.0));
     Simulator::Run();
     Simulator::Destroy();
     NS_LOG_INFO("Done.");
+    
+    g_anim = nullptr;  // Clear animation interface pointer
     return 0;
 }
